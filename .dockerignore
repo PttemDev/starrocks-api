@@ -1,0 +1,8 @@
+bin/
+tmp/
+config.json
+config.*.json
+!config.example.json
+.git
+.gitignore
+.DS_Store

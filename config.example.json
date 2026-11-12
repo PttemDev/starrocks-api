@@ -1,0 +1,52 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8081,
+    "read_timeout_seconds": 30,
+    "write_timeout_seconds": 300,
+    "cors_origins": ["http://localhost:5173"]
+  },
+  "environments": [
+    {
+      "name": "prod",
+      "display_name": "Production",
+      "hosts": [
+        "fe1.starrocks-prod.example.com:9030",
+        "fe2.starrocks-prod.example.com:9030",
+        "fe3.starrocks-prod.example.com:9030"
+      ],
+      "user": "admin",
+      "password": "your-password-here",
+      "database": "",
+      "max_open_conns": 50,
+      "max_idle_conns": 10,
+      "conn_max_lifetime_seconds": 300,
+      "read_only": true,
+      "default_replication_num": 2,
+      "fe_http_port": 8030
+    },
+    {
+      "name": "dev",
+      "display_name": "Development",
+      "host": "starrocks-dev.example.com",
+      "port": 9030,
+      "user": "admin",
+      "password": "your-password-here",
+      "database": "",
+      "max_open_conns": 20,
+      "max_idle_conns": 5,
+      "conn_max_lifetime_seconds": 300,
+      "read_only": false,
+      "default_replication_num": 3,
+      "fe_http_port": 8030
+    }
+  ],
+  "auth_tokens": [
+    { "tenant": "admin-ui", "token": "your-admin-token-here", "role": "admin" },
+    { "tenant": "viewer-ui", "token": "your-viewer-token-here", "role": "viewer" }
+  ],
+  "login_users": [
+    { "username": "admin", "password": "change-me", "role": "admin" },
+    { "username": "viewer", "password": "change-me", "role": "viewer" }
+  ]
+}

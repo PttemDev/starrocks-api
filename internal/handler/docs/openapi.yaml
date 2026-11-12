@@ -1,0 +1,1275 @@
+openapi: 3.0.3
+info:
+  title: StarRocks API
+  description: >
+    High-performance Go API gateway for StarRocks. Provides multi-environment
+    query execution, streaming exports, schema introspection, routine load
+    management, batch load & stream load, query monitoring, and role-based
+    access control.
+  version: 1.0.0
+
+servers:
+  - url: /
+    description: Current host
+
+tags:
+  - name: Health
+    description: Liveness and readiness probes
+  - name: Auth
+    description: Authentication
+  - name: Environments
+    description: Environment listing
+  - name: Query
+    description: SQL execution and export
+  - name: Schema
+    description: Database and table introspection
+  - name: Dashboard
+    description: Cluster node status and ingestion overview
+  - name: Routine Load
+    description: Routine load job management
+  - name: Batch Load
+    description: Batch load, stream load, and file upload
+  - name: Monitoring
+    description: Query monitoring (process list, slow queries)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Token from `auth_tokens` config or obtained via POST /api/login.
+
+  parameters:
+    XEnvironment:
+      name: X-Environment
+      in: header
+      required: true
+      description: Target environment name (e.g. `prod`, `test`).
+      schema:
+        type: string
+    DbParam:
+      name: db
+      in: query
+      required: true
+      schema:
+        type: string
+      description: Database name.
+    TableParam:
+      name: table
+      in: query
+      required: true
+      schema:
+        type: string
+      description: Table name.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: human-readable error message
+
+    SuccessMessage:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+    SqlBody:
+      type: object
+      required: [sql]
+      properties:
+        sql:
+          type: string
+          example: "SELECT * FROM mydb.events LIMIT 100"
+
+    SessionVariables:
+      type: object
+      additionalProperties:
+        type: string
+      description: >
+        Key-value pairs executed as `SET key = 'value'` on the connection before the
+        query runs. Useful for optimizer hints (e.g. `enable_topn_opt: "false"`).
+        Variable names must match `[a-zA-Z_][a-zA-Z0-9_]*`.
+      example:
+        enable_topn_opt: "false"
+        query_timeout: "600"
+
+    QueryRequest:
+      type: object
+      required: [sql]
+      properties:
+        sql:
+          type: string
+          example: "SELECT * FROM mydb.events LIMIT 100"
+        format:
+          type: string
+          enum: [ndjson, json]
+          default: ndjson
+          description: >
+            Response format. `ndjson` streams rows as newline-delimited JSON (default).
+            `json` returns a single JSON object with columns, types, and rows array.
+        session_variables:
+          $ref: "#/components/schemas/SessionVariables"
+
+    QueryJsonResponse:
+      type: object
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+          example: ["id", "name", "created_at"]
+        types:
+          type: array
+          items:
+            type: string
+          example: ["BIGINT", "VARCHAR", "DATETIME"]
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: admin
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+          example: your-admin-token-here
+        role:
+          type: string
+          enum: [admin, viewer]
+
+    EnvironmentInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          example: prod
+        display_name:
+          type: string
+          example: Production
+        read_only:
+          type: boolean
+        default_replication_num:
+          type: integer
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ReadyResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        uptime:
+          type: string
+          example: 2h35m12s
+        environments:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              ready:
+                type: boolean
+              latency_ms:
+                type: integer
+              error:
+                type: string
+
+    NdjsonMetadata:
+      type: object
+      description: First line of NDJSON stream — column metadata.
+      properties:
+        type:
+          type: string
+          example: metadata
+        columns:
+          type: array
+          items:
+            type: string
+        types:
+          type: array
+          items:
+            type: string
+
+    ExportRequest:
+      type: object
+      required: [sql]
+      properties:
+        sql:
+          type: string
+        format:
+          type: string
+          enum: [csv, excel, json]
+          default: csv
+        session_variables:
+          $ref: "#/components/schemas/SessionVariables"
+
+    NodeGroup:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [backend, frontend]
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    ColumnInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        nullable:
+          type: string
+        comment:
+          type: string
+
+    TableDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          description: "BASE TABLE, VIEW, or MATERIALIZED VIEW"
+        engine:
+          type: string
+          nullable: true
+        rows:
+          type: integer
+          nullable: true
+        avg_row_length:
+          type: integer
+          nullable: true
+        data_length:
+          type: integer
+          nullable: true
+        create_time:
+          type: string
+          nullable: true
+        update_time:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+
+    ShowCreateResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        ddl:
+          type: string
+
+    AddColumnRequest:
+      type: object
+      required: [database, table, sql]
+      properties:
+        database:
+          type: string
+        table:
+          type: string
+        sql:
+          type: string
+          example: "ALTER TABLE mydb.events ADD COLUMN new_col VARCHAR(100)"
+
+    KillQueryRequest:
+      type: object
+      required: [connection_id]
+      properties:
+        connection_id:
+          type: string
+          example: "12345"
+
+    CancelLoadRequest:
+      type: object
+      required: [database, label]
+      properties:
+        database:
+          type: string
+        label:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Invalid or missing token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient permissions (viewer on admin endpoint, or read-only env)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SqlError:
+      description: SQL execution error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+paths:
+  # ── Health ─────────────────────────────────────────────────────────
+  /health/live:
+    get:
+      operationId: healthLive
+      tags: [Health]
+      summary: Liveness probe
+      description: >
+        Returns 200 whenever the process is running and the HTTP server accepts
+        connections. Touches no database: a failing liveness probe restarts the
+        pod, and a restart cannot fix an unreachable cluster.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /health/startup:
+    get:
+      operationId: healthStartup
+      tags: [Health]
+      summary: Startup probe
+      description: >
+        Equivalent to the liveness probe. Connection pools open lazily, so the
+        server is usable as soon as it binds; this path exists so a startup probe
+        can be enabled without a 404.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /health/ready:
+    get:
+      operationId: healthReady
+      tags: [Health]
+      summary: Readiness probe
+      description: >
+        Pings every configured environment concurrently, each with its own
+        sub-second budget. Returns 200 when **at least one** environment is
+        reachable and 503 only when none are — each config lists both clusters,
+        so requiring all of them would pull a healthy pod out of the load
+        balancer because the other cluster is down, and would take every replica
+        out at once. Per-environment detail is in the body.
+      responses:
+        "200":
+          description: At least one environment reachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: No environment reachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+
+  /api/health:
+    get:
+      operationId: health
+      tags: [Health]
+      summary: Liveness probe (alias)
+      description: Alias for `/health/live`, kept for existing callers.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /api/ready:
+    get:
+      operationId: ready
+      tags: [Health]
+      summary: Readiness probe (alias)
+      description: Alias for `/health/ready`, kept for existing callers.
+      responses:
+        "200":
+          description: At least one environment reachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: No environment reachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+
+  # ── Auth ───────────────────────────────────────────────────────────
+  /api/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Authenticate
+      description: Validate username/password and return a Bearer token with role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Environments ───────────────────────────────────────────────────
+  /api/environments:
+    get:
+      operationId: listEnvironments
+      tags: [Environments]
+      summary: List environments
+      description: Returns all configured environments. Sensitive fields (host, password) are excluded.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EnvironmentInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Query ──────────────────────────────────────────────────────────
+  /api/query:
+    post:
+      operationId: executeQuery
+      tags: [Query]
+      summary: Execute SQL query
+      description: >
+        Execute a SQL query. Supports two response formats via the `format` field:
+
+
+        - **ndjson** (default): Streams rows as newline-delimited JSON. First line
+          is metadata, subsequent lines are data rows. Best for large result sets.
+
+        - **json**: Returns a single JSON object with `columns`, `types`, and `rows`
+          array. Easier to consume for B2B integrations and standard HTTP clients.
+
+
+        On read-only environments, DDL/DML statements are blocked (HTTP 403).
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRequest"
+      responses:
+        "200":
+          description: >
+            Query results. Content-Type depends on format:
+            `application/x-ndjson` for ndjson, `application/json` for json.
+          content:
+            application/x-ndjson:
+              schema:
+                $ref: "#/components/schemas/NdjsonMetadata"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryJsonResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  /api/export:
+    post:
+      operationId: exportQuery
+      tags: [Query]
+      summary: Export query results
+      description: Execute a SQL query and return results as a downloadable file (CSV, Excel, or JSON).
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: File download
+          content:
+            text/csv: {}
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: {}
+            application/json: {}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  # ── Dashboard ──────────────────────────────────────────────────────
+  /api/nodes:
+    get:
+      operationId: getNodes
+      tags: [Dashboard]
+      summary: Cluster node status
+      description: Returns StarRocks backend and frontend node statuses.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NodeGroup"
+
+  /api/routines:
+    get:
+      operationId: getAllRoutines
+      tags: [Dashboard]
+      summary: All routine load jobs
+      description: >
+        Returns all routine load jobs (all states) across all user databases.
+        System databases are excluded.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/ingestion:
+    get:
+      operationId: getIngestion
+      tags: [Dashboard]
+      summary: Routine loads for a database
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - name: db
+          in: query
+          schema:
+            type: string
+          description: Database name (optional).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  # ── Schema ─────────────────────────────────────────────────────────
+  /api/databases:
+    get:
+      operationId: listDatabases
+      tags: [Schema]
+      summary: List databases
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/tables:
+    get:
+      operationId: listTables
+      tags: [Schema]
+      summary: List tables in database
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - $ref: "#/components/parameters/DbParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/columns:
+    get:
+      operationId: getColumns
+      tags: [Schema]
+      summary: Column metadata
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - $ref: "#/components/parameters/DbParam"
+        - $ref: "#/components/parameters/TableParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ColumnInfo"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/table-details:
+    get:
+      operationId: getTableDetails
+      tags: [Schema]
+      summary: Detailed table info
+      description: >
+        Returns row counts, data sizes, timestamps for all tables in a database.
+        Distinguishes between BASE TABLE, VIEW, and MATERIALIZED VIEW.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - $ref: "#/components/parameters/DbParam"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TableDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/show-create:
+    get:
+      operationId: showCreate
+      tags: [Schema]
+      summary: DDL for table/view/MV
+      description: Returns the creation DDL using SHOW CREATE TABLE/VIEW/MATERIALIZED VIEW.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - $ref: "#/components/parameters/DbParam"
+        - $ref: "#/components/parameters/TableParam"
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [BASE TABLE, VIEW, MATERIALIZED VIEW]
+          description: Object type.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShowCreateResponse"
+        "404":
+          description: No DDL found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Routine Load ───────────────────────────────────────────────────
+  /api/routine-load/list:
+    get:
+      operationId: listRoutineLoads
+      tags: [Routine Load]
+      summary: Routine loads by db/table
+      description: >
+        Lists all routine load jobs (all states) for a database.
+        Optionally filtered by table name.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - $ref: "#/components/parameters/DbParam"
+        - name: table
+          in: query
+          schema:
+            type: string
+          description: Filter by table name (optional).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/routine-load/execute:
+    post:
+      operationId: executeRoutineLoad
+      tags: [Routine Load]
+      summary: Manage routine loads (admin)
+      description: >
+        Execute routine load management commands.
+        Whitelisted: CREATE, PAUSE, RESUME, STOP, ALTER, SHOW ROUTINE LOAD.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SqlBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  /api/routine-load/alter:
+    post:
+      operationId: alterRoutineLoad
+      tags: [Routine Load]
+      summary: Alter a routine load in place (admin)
+      description: >
+        Runs PAUSE (if the job is active) → ALTER ROUTINE LOAD → RESUME on one
+        connection. If ALTER fails, a job that was active is resumed with its
+        previous settings. Offsets are kept. Only the properties ALTER accepts
+        are allowed (StarRocks 4.0): job properties desired_concurrent_number,
+        max_error_number, max_filter_ratio, max_batch_interval, max_batch_rows,
+        max_batch_size, task_consume_second, task_timeout_second, jsonpaths,
+        json_root, strip_outer_array, strict_mode, timezone,
+        pause_on_fatal_parse_error; source properties kafka_broker_list,
+        kafka_partitions + kafka_offsets, confluent.schema.registry.url and
+        property.*. Topic, format and target table need a re-create.
+        The new broker list is not contacted by ALTER itself — connection
+        errors surface afterwards in OtherMsg / ReasonOfStateChanged.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [database, name]
+              properties:
+                database:
+                  type: string
+                name:
+                  type: string
+                columns:
+                  type: string
+                  description: Body of COLUMNS(...) — replaces the column mapping.
+                where:
+                  type: string
+                  description: WHERE predicate.
+                job_properties:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  example:
+                    desired_concurrent_number: "3"
+                data_source_properties:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  example:
+                    kafka_broker_list: "broker1:9092,broker2:9092"
+                resume:
+                  type: boolean
+                  description: >
+                    Resume after altering. Omitted = resume only if the job was
+                    active before the call.
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  statements:
+                    type: array
+                    items:
+                      type: string
+                    description: Statements that were executed, in order.
+                  resumed:
+                    type: boolean
+                  warning:
+                    type: string
+                    description: Set when ALTER succeeded but RESUME failed (job left PAUSED).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Job is stopped or cancelled (re-create it instead)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  # ── Batch Load ─────────────────────────────────────────────────────
+  /api/batch-load/list:
+    get:
+      operationId: listBatchLoads
+      tags: [Batch Load]
+      summary: Batch load jobs
+      description: >
+        Lists recent load jobs (Stream Load, Broker Load, INSERT).
+        Tries information_schema.loads first, falls back to SHOW LOAD.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - name: db
+          in: query
+          schema:
+            type: string
+          description: Database name. Omit for all databases.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+          description: Max number of jobs to return.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/batch-load/execute:
+    post:
+      operationId: executeBatchLoad
+      tags: [Batch Load]
+      summary: Execute batch load (admin)
+      description: >
+        Execute batch load commands.
+        Whitelisted: LOAD LABEL, INSERT INTO, SHOW LOAD.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SqlBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  /api/batch-load/cancel:
+    post:
+      operationId: cancelBatchLoad
+      tags: [Batch Load]
+      summary: Cancel batch load (admin)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelLoadRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  /api/stream-load:
+    post:
+      operationId: streamLoad
+      tags: [Batch Load]
+      summary: Upload file via Stream Load (admin)
+      description: >
+        Proxies a file upload to StarRocks FE HTTP Stream Load API.
+        Max file size: 512 MB.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [database, table, file]
+              properties:
+                database:
+                  type: string
+                table:
+                  type: string
+                file:
+                  type: string
+                  format: binary
+                format:
+                  type: string
+                  enum: [csv, json, parquet, orc]
+                column_separator:
+                  type: string
+                  description: Column delimiter (default \t)
+                row_separator:
+                  type: string
+                columns:
+                  type: string
+                  description: Column mapping
+                label:
+                  type: string
+                  description: Unique load label
+                partial_update:
+                  type: string
+                  enum: ["true", "false"]
+                max_filter_ratio:
+                  type: string
+                  description: "e.g. 0.1"
+                strict_mode:
+                  type: string
+                  enum: ["true", "false"]
+                timezone:
+                  type: string
+                jsonpaths:
+                  type: string
+                json_root:
+                  type: string
+                strip_outer_array:
+                  type: string
+                  enum: ["true", "false"]
+                skip_header:
+                  type: string
+                  description: Number of header rows to skip
+                trim_space:
+                  type: string
+                  enum: ["true", "false"]
+                enclose:
+                  type: string
+                  description: "Enclosure character (e.g. \")"
+                escape:
+                  type: string
+                  description: "Escape character (e.g. \\)"
+      responses:
+        "200":
+          description: StarRocks Stream Load response (forwarded as-is)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Monitoring ─────────────────────────────────────────────────────
+  /api/process-list:
+    get:
+      operationId: getProcessList
+      tags: [Monitoring]
+      summary: Running processes
+      description: Returns SHOW PROCESSLIST output.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/current-queries:
+    get:
+      operationId: getCurrentQueries
+      tags: [Monitoring]
+      summary: Active queries (detailed)
+      description: >
+        Returns active queries via SHOW PROC "/current_queries".
+        Falls back to SHOW PROCESSLIST if unavailable.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/slow-queries:
+    get:
+      operationId: getSlowQueries
+      tags: [Monitoring]
+      summary: Slow query log
+      description: >
+        Returns recent slow queries. Tries information_schema.slow_query first,
+        falls back to audit plugin table.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+          description: Max number of rows to return.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/kill-query:
+    post:
+      operationId: killQuery
+      tags: [Monitoring]
+      summary: Kill a running query (admin)
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KillQueryRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  # ── Admin ──────────────────────────────────────────────────────────
+  /api/create-table:
+    post:
+      operationId: createTable
+      tags: [Schema]
+      summary: Create table (admin)
+      description: >
+        Execute a CREATE TABLE / CREATE EXTERNAL TABLE command.
+        Blocked on read-only environments.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SqlBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  /api/add-column:
+    post:
+      operationId: addColumn
+      tags: [Schema]
+      summary: Add column (admin)
+      description: Execute an ALTER TABLE ADD COLUMN command. Blocked on read-only environments.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddColumnRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/SqlError"
+
+  /api/admin/exec:
+    post:
+      operationId: adminExec
+      tags: [Schema]
+      summary: Admin commands (admin)
+      description: >
+        Execute cluster admin commands. Whitelisted:
+        ALTER SYSTEM ADD/DROP FOLLOWER/OBSERVER/BACKEND,
+        ALTER SYSTEM DECOMMISSION BACKEND, DROP TABLE, CREATE DATABASE, DROP DATABASE.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XEnvironment"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SqlBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/SqlError"

@@ -1,0 +1,22 @@
+# Local config. Holds database passwords and API tokens, never commit it.
+config.json
+config.*.json
+!config.example.json
+
+# Binaries
+bin/
+server
+starrocks-api
+
+# Build cache
+tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
